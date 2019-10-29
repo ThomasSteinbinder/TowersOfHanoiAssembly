@@ -19,11 +19,11 @@
 .EQU statusLed2				= PD6
 .EQU statusLed3				= PD7
 
-.DEF currentStack			= r20
-.DEF topPlateTemp			= r21
-.DEF midPlateTemp			= r22
-.DEF botPlateTemp			= r23
-.DEF statusLedCurrentStack	= r24
+.DEF currentStack			= r18
+.DEF topPlateTemp			= r19
+.DEF midPlateTemp			= r20
+.DEF botPlateTemp			= r21
+.DEF statusLedCurrentStack	= r22
 
 
 .DSEG
@@ -95,12 +95,13 @@ loop:
 	pickIt:
 		rcall pullCurrentStack
 		rcall Pick
+		rcall pushCurrentStack
 		rjmp checkIfWon
 
 	dropIt:
-		rcall pushCurrentStack
+		rcall pullCurrentStack
 		rcall Drop
-
+		rcall pushCurrentStack
 
 	checkIfWon:
 	lds r16, goalTop
