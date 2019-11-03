@@ -147,40 +147,111 @@ rjmp loop
 
 
 won:
-	in r16, PORTD
-	cbr r16, (1 << latch) | (1 << clock)
-	out PORTB, r16
 
-	cpi r17, 4
-	brne Toggle2
-
-	Toggle1:
-		sbr r16, (1 << data)
-		clr r17
-		rjmp ToggleEnd
-
-	Toggle2:
-		cbr r16, (1 << data)
-		inc r17;
-		
-	ToggleEnd:
-	out PORTB, r16
-
-	sbr r16, (1 << clock)
-	out PORTB, r16
-
-	sbr r16, (1 << latch)
-	out PORTB, r16
-	
-	// wait:
-	clr r16
-	waitWon:
-		rcall waitMedium
-		inc r16
-		cpi r16, 5
-		brne waitWon
+	rcall shiftAnimation
+	rcall flashAnimation
 
 rjmp won
+
+shiftAnimation:
+	push r16
+	push r17
+	push r18
+	clr r18
+
+	innerShiftAnimation:
+		inc r18
+		in r16, PORTD
+		cbr r16, (1 << latch) | (1 << clock)
+		out PORTB, r16
+		cpi r17, 4
+		brne TurnOff
+
+		TurnOn:
+			sbr r16, (1 << data)
+			clr r17
+			rjmp ToggleEnd
+		TurnOff:
+			cbr r16, (1 << data)
+			inc r17;		
+		ToggleEnd:
+		out PORTB, r16
+
+		sbr r16, (1 << clock)
+		out PORTB, r16
+
+		sbr r16, (1 << latch)
+		out PORTB, r16
+
+		clr r16
+		waitShiftAnimation:
+			rcall waitMedium
+			inc r16
+			cpi r16, 4
+			brne waitShiftAnimation
+			
+		cpi r18, 80
+		brne innerShiftAnimation
+
+	pop r18
+	pop r17
+	pop r16
+ret
+
+flashAnimation:
+	push r16
+	push r17
+	push r18
+
+	in r16, PORTD
+	clr r18
+	Toggle:
+		inc r18
+		clr r17
+
+		rcall shiftLoopOff
+		rcall waitLong
+		rcall waitLong
+		clr r17
+		rcall shiftLoopOn
+		rcall waitLong
+		rcall waitLong
+
+		cpi r18, 3
+		brne Toggle
+		rjmp endFlash
+
+	shiftLoopOn:
+		cbr r16, (1 << latch) | (1 << clock)
+		inc r17
+		sbr r16, (1 << data)
+		out  PORTB, r16
+		sbr r16, (1 << clock)
+		out  PORTB, r16
+		cpi r17, 27
+		brne shiftLoopOn
+		sbr r16, (1 << latch)
+		out PORTB, r16
+	ret
+	
+	shiftLoopOff:
+		cbr r16, (1 << latch) | (1 << clock)
+		inc r17
+		cbr r16, (1 << data)
+		out  PORTB, r16
+		sbr r16, (1 << clock)
+		out  PORTB, r16
+		cpi r17, 27
+		brne shiftLoopOff
+		sbr r16, (1 << latch)
+		out PORTB, r16
+	ret
+
+	endFlash:
+	pop r18
+	pop r17
+	pop r16
+ret
 
 
 pullCurrentStack:
@@ -461,7 +532,7 @@ waitMedium:
 	waitMedLoop:
 		rcall waitShort
 		inc r16
-		cpi r16, 0xFF
+		cpi r16, 0xAF
 		brne waitMedLoop
 
 	pop r16
