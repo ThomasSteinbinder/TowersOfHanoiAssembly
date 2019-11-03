@@ -8,22 +8,28 @@
 ;
 
 // Values for the plates (first 3 bits can be ignored)
-.EQU smallPlatePattern		= 0b00000100 // = 4 / 0x04
-.EQU medPlatePattern		= 0b00001110 // = 14 / 0x0E
-.EQU bigPlatePattern		= 0b00011111 // = 31 / 0x1F
+.EQU smallPlatePattern			= 0b00000100 // = 4 / 0x04
+.EQU medPlatePattern			= 0b00001110 // = 14 / 0x0E
+.EQU bigPlatePattern			= 0b00011111 // = 31 / 0x1F
 
-.EQU stack1Button			= PD2
-.EQU stack2Button			= PD3
-.EQU stack3Button			= PD4
-.EQU statusLed1				= PD5
-.EQU statusLed2				= PD6
-.EQU statusLed3				= PD7
+// Pins for the shift registers
+.EQU data						= PB1 // pin 9
+.EQU latch						= PB2 // pin 10
+.EQU clock						= PB3 // pin 11
 
-.DEF currentStack			= r18
-.DEF topPlateTemp			= r19
-.DEF midPlateTemp			= r20
-.DEF botPlateTemp			= r21
-.DEF statusLedCurrentStack	= r22
+.EQU stack1Button				= PD2
+.EQU stack2Button				= PD3
+.EQU stack3Button				= PD4
+.EQU statusLed1					= PD5
+.EQU statusLed2					= PD6
+.EQU statusLed3					= PD7
+
+.DEF currentStack				= r18
+.DEF topPlateTemp				= r19
+.DEF midPlateTemp				= r20
+.DEF botPlateTemp				= r21
+.DEF statusLedCurrentStack		= r22
+.DEF currentPlateMaxSizePattern	= r23
 
 
 .DSEG
@@ -50,23 +56,47 @@ start:
 	
 	// Pin 2, 3, 4 as input for buttons the rest as output
 	ser r16
-	cbr r16, (1 << PD2) | (1 << PD3) | (1 << PD4)
+	cbr r16, (1 << stack1Button) | (1 << stack2Button) | (1 << stack3Button)
 	out DDRD, r16
 
+	// All pins of PORTB as output 
+	ser r16
+	out DDRB, r16
+
+	// clear all working registers:
+	clr currentStack
+	clr topPlateTemp
+	clr midPlateTemp
+	clr botPlateTemp
+	clr statusLedCurrentStack
+	clr currentPlateMaxSizePattern
+
 	// Fill first stack
-	ldi r16, smallPlatePattern
+	ldi r16, smallPlatePattern	
 	sts startTop, r16
 	ldi r16, medPlatePattern
 	sts startMid, r16
 	ldi r16, bigPlatePattern
 	sts startBot, r16
 
+	// Clear the other stacks
+	clr r16
+	sts helpTop, r16
+	sts helpMid, r16
+	sts helpBot, r16
+	sts goalTop, r16
+	sts goalMid, r16
+	sts goalBot, r16
+	sts pickPlate, r16
+
+	rcall DrawGame
+
 	rjmp loop
 
 
 loop:
-	// debug stuff...
-	lds r23, startTop
+	// debug stuff...	
+	/*lds r23, startTop
 	lds r24, startMid
 	lds r25, startBot
 	lds r26, helpTop
@@ -75,9 +105,9 @@ loop:
 	lds r29, goalTop
 	lds r30, goalMid
 	lds r31, goalBot
-	nop
-	nop
-	nop
+	nop */
+
+	ldi currentStack, 99 // invalid stack
 
 	sbic PIND, PD2 // button 1 pressed		
 		ldi currentStack, 0
@@ -85,6 +115,9 @@ loop:
 		ldi currentStack, 1
 	sbic PIND, PD4 // button 3 pressed
 		ldi currentStack, 2
+
+	cpi currentStack, 99
+	breq loop
 
 	// Pick or drop?
 	lds r16, pickPlate
@@ -104,6 +137,8 @@ loop:
 		rcall pushCurrentStack
 
 	checkIfWon:
+	rcall drawGame
+	rcall waitLong
 	lds r16, goalTop
 	cpi r16, 0
 	brne won
@@ -112,8 +147,40 @@ rjmp loop
 
 
 won:
-	nop// game is won!
-	rjmp loop
+	in r16, PORTD
+	cbr r16, (1 << latch) | (1 << clock)
+	out PORTB, r16
+
+	cpi r17, 4
+	brne Toggle2
+
+	Toggle1:
+		sbr r16, (1 << data)
+		clr r17
+		rjmp ToggleEnd
+
+	Toggle2:
+		cbr r16, (1 << data)
+		inc r17;
+		
+	ToggleEnd:
+	out PORTB, r16
+
+	sbr r16, (1 << clock)
+	out PORTB, r16
+
+	sbr r16, (1 << latch)
+	out PORTB, r16
+	
+	// wait:
+	clr r16
+	waitWon:
+		rcall waitMedium
+		inc r16
+		cpi r16, 5
+		brne waitWon
+
+rjmp won
 
 
 pullCurrentStack:
@@ -217,7 +284,7 @@ Pick:
 			rjmp retBtnPick
 		setLed1:
 			sbi PORTD, statusLed1
-			rjmp retBtnPick		
+			rjmp retBtnPick
 
 	retBtnPick:
 		pop r16
@@ -260,10 +327,154 @@ ret
 // Kills all the status leds and clears the temp pickedPlate field
 successfulDrop:
 	push r16
-	
-	cbi PORTD, (statusLed1) | (statusLed2) | (statusLed3)
+
+	lds r16, PORTD
+	cbr r16, (1 >> statusLed1) | (1 >> statusLed2) | (1 >> statusLed3)
+	out PORTD, r16
 	clr r16
 	sts pickPlate, r16
+
+	pop r16
+ret
+
+
+drawGame:
+	push r16
+
+	lds currentStack, goalBot
+	ldi currentPlateMaxSizePattern, bigPlatePattern
+	rcall drawCurrentStack
+	lds currentStack, goalMid
+	ldi currentPlateMaxSizePattern, medPlatePattern
+	rcall drawCurrentStack
+	lds currentStack, goalTop
+	ldi currentPlateMaxSizePattern, smallPlatePattern
+	rcall drawCurrentStack
+
+	lds currentStack, helpBot
+	ldi currentPlateMaxSizePattern, bigPlatePattern
+	rcall drawCurrentStack
+	lds currentStack, helpMid
+	ldi currentPlateMaxSizePattern, medPlatePattern
+	rcall drawCurrentStack
+	lds currentStack, helpTop
+	ldi currentPlateMaxSizePattern, smallPlatePattern
+	rcall drawCurrentStack
+
+	lds currentStack, startBot
+	ldi currentPlateMaxSizePattern, bigPlatePattern
+	rcall drawCurrentStack
+	lds currentStack, startMid
+	ldi currentPlateMaxSizePattern, medPlatePattern
+	rcall drawCurrentStack
+	lds currentStack, startTop
+	ldi currentPlateMaxSizePattern, smallPlatePattern
+	rcall drawCurrentStack
+	
+	sbr r16, (1 << latch)
+	out PORTB, r16
+
+	pop r16
+ret
+
+
+drawCurrentStack:
+	push r16
+	push r17
+
+	// how many bits does this plate have?
+	cpi currentPlateMaxSizePattern, bigPlatePattern // if current plate is big (5 bits)
+	brge fiveBits // draw five bits
+	cpi currentPlateMaxSizePattern, medPlatePattern // if current plate is med (3 bits)
+	brge threeBits // draw 3 bits
+	// else draw one bit:
+
+	oneBit:
+		ldi r17, 1
+		clc
+		ror currentStack
+		ror currentStack
+		rjmp loopShift
+	threeBits:
+		ldi r17, 3
+		clc
+		ror currentStack
+		rjmp loopShift
+	fiveBits:
+		ldi r17, 5		
+
+	loopShift:
+		// Reset latch and clock
+		in r16, PORTB
+		cbr r16, (1 << latch) | (1 << clock)
+		out PORTB, r16
+
+		sbrs currentStack, 0
+		rjmp clearBit
+		setBit:
+			sbr r16, (1 << data)
+			rjmp goShift
+		clearBit:
+			cbr r16, (1 << data)
+
+		goShift:
+			out PORTB, r16 // set data bit 
+
+			sbr r16, (1 << clock) // shift
+			out PORTB, r16
+			dec r17
+			clc
+			ror currentStack
+
+			cpi r17, 0
+			brne loopShift			
+	pop r16
+	pop r17
+ret
+
+
+waitLong:
+	push r16
+	push r17
+	ser r16
+	ser r17
+
+	waitLongLoop:
+		waitLongInnerLoop:
+			rcall waitShort
+			inc r17
+			cpi r17, 0xFF
+			brne waitLongInnerLoop
+		inc r16
+		cpi r16, 15
+		brne waitLongLoop
+
+	pop r17
+	pop r16
+ret
+
+
+waitMedium:
+	push r16
+	ser r16
+
+	waitMedLoop:
+		rcall waitShort
+		inc r16
+		cpi r16, 0xFF
+		brne waitMedLoop
+
+	pop r16
+ret
+
+waitShort:
+	push r16
+	ser r16
+
+	waitLoop:
+		inc r16
+		cpi r16, 0xFF
+		brne waitLoop
 
 	pop r16
 ret
