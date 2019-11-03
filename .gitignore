@@ -54,3 +54,7 @@ TOHAsm/Debug/TOHAsm.lss
 TOHAsm/Debug/TOHAsm.map
 TOHAsm/Debug/TOHAsm.obj
 TOHAsm/Debug/TOHAsm.tmp
+*.lss
+*.obj
+*.hex
+*.map
